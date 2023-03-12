@@ -32,6 +32,7 @@ if os.path.isdir(output_dir) == False:
 if args.input:
     directory = args.input
 # IMPLEMENT: Track the number of items in each category and only output if above the min
+product_map = dict()
 min_products = args.min_products
 names_as_labels = False
 if args.label == 'name':
@@ -61,9 +62,18 @@ def _label_filename(filename):
 if __name__ == '__main__':
     files = glob.glob(f'{directory}/*.xml')
     print("Writing results to %s" % output_file)
+    print("min_products: {}".format(min_products))
     with multiprocessing.Pool() as p:
         all_labels = tqdm(p.imap(_label_filename, files), total=len(files))
-        with open(output_file, 'w') as output:
-            for label_list in all_labels:
-                for (cat, name) in label_list:
+        for label_list in all_labels:
+            for (cat, name) in label_list:
+                if cat in product_map:
+                    product_map[cat].append(name)
+                else:
+                    product_map[cat] = [name]
+    with open(output_file, 'w') as output:
+        for cat in product_map:
+            if len(product_map[cat]) >= min_products:
+                print("Cat {} greater than min with {} count".format(cat, len(product_map[cat])))
+                for name in product_map[cat]:
                     output.write(f'__label__{cat} {name}\n')
