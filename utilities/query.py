@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 import pandas as pd
 import fileinput
 import logging
+import fasttext
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ def create_prior_queries(doc_ids, doc_id_weights,
 
 
 # Hardcoded query here.  Better to use search templates or other query config.
-def create_query(user_query, click_prior_query, filters, sort="_score", sortDir="desc", size=10, source=None, synonyms=False):
+def create_query(user_query, click_prior_query, filters, sort="_score", sortDir="desc", size=10, source=None, synonyms=False, query_label=None):
     name_field = "name"
     if synonyms:
         name_field = "name.synonyms"
@@ -186,15 +187,30 @@ def create_query(user_query, click_prior_query, filters, sort="_score", sortDir=
             print("Couldn't replace query for *")
     if source is not None:  # otherwise use the default and retrieve all source
         query_obj["_source"] = source
+    if query_label is not None:
+        query_obj["query"]["function_score"]["query"]["bool"]["must"].append({
+            "term" : {
+                "categoryPathIds.keyword": query_label 
+            }
+        })
     return query_obj
 
 
-def search(client, user_query, index="bbuy_products", sort="_score", sortDir="desc", synonyms=False):
+def search(client, user_query, index="bbuy_products", sort="_score", sortDir="desc", synonyms=False, model=None):
     #### W3: classify the query
+    query_label = None
+    if model is not None:
+        prediction = model.predict(user_query)
+        print(f'prediction: {prediction}')
+        labels = prediction[0][0].split(",")
+        query_label = labels[0].replace("__label__", "")
+
+    print(f"query_label: {query_label}")
     #### W3: create filters and boosts
     # Note: you may also want to modify the `create_query` method above
-    query_obj = create_query(user_query, click_prior_query=None, filters=None, sort=sort, sortDir=sortDir, source=["name", "shortDescription"], synonyms=synonyms)
+    query_obj = create_query(user_query, click_prior_query=None, filters=None, sort=sort, sortDir=sortDir, source=["name", "shortDescription", "categoryPath", "categoryPathIds"], synonyms=synonyms, query_label=query_label)
     logging.info(query_obj)
+    print(query_obj)
     response = client.search(query_obj, index=index)
     if response and response['hits']['hits'] and len(response['hits']['hits']) > 0:
         hits = response['hits']['hits']
@@ -242,6 +258,9 @@ if __name__ == "__main__":
         ssl_show_warn=False,
 
     )
+
+    model = fasttext.load_model("/workspace/search_with_machine_learning_course/query_classifier.bin")
+    #model = None
     index_name = args.index
     use_synonyms = args.synonyms
     print('use_synonyms: {}'.format(use_synonyms))
@@ -253,5 +272,5 @@ if __name__ == "__main__":
         query = line.rstrip()
         if query.lower() == "exit":
             exit(0)
-        search(client=opensearch, user_query=query, index=index_name, synonyms=use_synonyms)
+        search(client=opensearch, user_query=query, index=index_name, synonyms=use_synonyms, model=model)
     
