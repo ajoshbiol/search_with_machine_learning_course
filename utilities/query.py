@@ -13,6 +13,8 @@ import fileinput
 import logging
 import fasttext
 
+from sentence_transformers import SentenceTransformer
+sentenceTransformerModel = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -196,7 +198,7 @@ def create_query(user_query, click_prior_query, filters, sort="_score", sortDir=
     return query_obj
 
 
-def search(client, user_query, index="bbuy_products", sort="_score", sortDir="desc", synonyms=False, model=None):
+def search(client, user_query, index="bbuy_products", sort="_score", sortDir="desc", synonyms=False, model=None, vector=False):
     #### W3: classify the query
     query_label = None
     if model is not None:
@@ -208,14 +210,30 @@ def search(client, user_query, index="bbuy_products", sort="_score", sortDir="de
     print(f"query_label: {query_label}")
     #### W3: create filters and boosts
     # Note: you may also want to modify the `create_query` method above
-    query_obj = create_query(user_query, click_prior_query=None, filters=None, sort=sort, sortDir=sortDir, source=["name", "shortDescription", "categoryPath", "categoryPathIds"], synonyms=synonyms, query_label=query_label)
+    if vector:
+        query_obj = create_vector_query(user_query, 5)
+    else:
+        query_obj = create_query(user_query, click_prior_query=None, filters=None, sort=sort, sortDir=sortDir, source=["name", "shortDescription", "categoryPath", "categoryPathIds"], synonyms=synonyms, query_label=query_label)
     logging.info(query_obj)
-    print(query_obj)
     response = client.search(query_obj, index=index)
     if response and response['hits']['hits'] and len(response['hits']['hits']) > 0:
         hits = response['hits']['hits']
         print(json.dumps(response, indent=2))
 
+def create_vector_query(query="", num_results=10):
+    vector = sentenceTransformerModel.encode([query])
+    return {
+        "size": num_results,
+        "_source": ["categoryPath", "shortDescription", "name"],
+        "query": {
+            "knn": {
+                "embedding": {
+                    "vector": vector[0],
+                    "k": num_results
+                }
+            }
+        }
+    }
 
 if __name__ == "__main__":
     host = 'localhost'
@@ -233,6 +251,8 @@ if __name__ == "__main__":
                          help='The OpenSearch admin.  If this is set, the program will prompt for password too. If not set, use default of admin/admin')
     general.add_argument("-syn", '--synonyms',
                          help='If this is set, query is performed with synonyms.')
+    general.add_argument("--vector",
+                         help='If this is set, query is performed with using knn.')
     args = parser.parse_args()
 
     if len(vars(args)) == 0:
@@ -264,6 +284,8 @@ if __name__ == "__main__":
     index_name = args.index
     use_synonyms = args.synonyms
     print('use_synonyms: {}'.format(use_synonyms))
+    use_vector = args.vector
+    print('use_vector: {}'.format(use_vector))
     print('host: {}'.format(host))
     query_prompt = "\nEnter your query (type 'Exit' to exit or hit ctrl-c):"
     #print(query_prompt)
@@ -272,5 +294,5 @@ if __name__ == "__main__":
         query = line.rstrip()
         if query.lower() == "exit":
             exit(0)
-        search(client=opensearch, user_query=query, index=index_name, synonyms=use_synonyms, model=model)
+        search(client=opensearch, user_query=query, index=index_name, synonyms=use_synonyms, model=model, vector=use_vector)
     
