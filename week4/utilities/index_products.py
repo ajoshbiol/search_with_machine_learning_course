@@ -14,6 +14,8 @@ from pathlib import Path
 import requests
 import json
 
+from sentence_transformers import SentenceTransformer
+
 from time import perf_counter
 
 logger = logging.getLogger(__name__)
@@ -107,7 +109,7 @@ def get_opensearch():
 def index_file(file, index_name, reduced=False):
     logger.info("Creating Model")
     # IMPLEMENT ME: instantiate the sentence transformer model!
-    
+    model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
     logger.info("Ready to index")
 
     docs_indexed = 0
@@ -136,16 +138,27 @@ def index_file(file, index_name, reduced=False):
             continue
         if reduced and ('categoryPath' not in doc or 'Best Buy' not in doc['categoryPath'] or 'Movies & Music' in doc['categoryPath']):
             continue
+
         docs.append({'_index': index_name, '_id':doc['sku'][0], '_source' : doc})
         #docs.append({'_index': index_name, '_source': doc})
         docs_indexed += 1
+        names.append(doc["name"])
         if docs_indexed % 200 == 0:
+            logger.info("Encoding names")
+            embeddings = model.encode(names)
+            for doc in docs:
+                doc["_source"]["embeddings"] = embeddings
             logger.info("Indexing")
             bulk(client, docs, request_timeout=60)
             logger.info(f'{docs_indexed} documents indexed')
             docs = []
             names = []
     if len(docs) > 0:
+        logger.info("Encoding names")
+        embeddings = model.encode(names)
+        for doc in docs:
+            doc["_source"]["embedding"] = embeddings
+        logger.info("Indexing")
         bulk(client, docs, request_timeout=60)
         logger.info(f'{docs_indexed} documents indexed')
     return docs_indexed
