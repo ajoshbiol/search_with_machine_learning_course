@@ -142,12 +142,13 @@ def index_file(file, index_name, reduced=False):
         docs.append({'_index': index_name, '_id':doc['sku'][0], '_source' : doc})
         #docs.append({'_index': index_name, '_source': doc})
         docs_indexed += 1
-        names.append(doc["name"])
+        names.append(doc["name"][0])
         if docs_indexed % 200 == 0:
             logger.info("Encoding names")
             embeddings = model.encode(names)
-            for doc in docs:
-                doc["_source"]["embeddings"] = embeddings
+            logger.info("Done encoding. Starting enumerating docs")
+            for i, embedding in enumerate(embeddings):
+                docs[i]["_source"]["embedding"] = embedding
             logger.info("Indexing")
             bulk(client, docs, request_timeout=60)
             logger.info(f'{docs_indexed} documents indexed')
@@ -156,15 +157,16 @@ def index_file(file, index_name, reduced=False):
     if len(docs) > 0:
         logger.info("Encoding names")
         embeddings = model.encode(names)
-        for doc in docs:
-            doc["_source"]["embedding"] = embeddings
+        logger.info("Done encoding. Starting enumerating docs")
+        for i, embedding in enumerate(embeddings):
+            docs[i]["_source"]["embedding"] = embedding
         logger.info("Indexing")
         bulk(client, docs, request_timeout=60)
         logger.info(f'{docs_indexed} documents indexed')
     return docs_indexed
 
 @click.command()
-@click.option('--source_dir', '-s', default='/workspace/datasets/product_data/products'. help='XML files source directory')
+@click.option('--source_dir', '-s', default='/workspace/datasets/product_data/products', help='XML files source directory')
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
 @click.option('--reduced', is_flag=True, show_default=True, default=False, help="Removes music, movies, and merchandised products.")
 def main(source_dir: str, index_name: str, reduced: bool):
